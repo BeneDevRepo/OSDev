@@ -40,26 +40,34 @@ ebr_system_id: db "FAT12   " ; padded to 8 bytes
 
 %define CR 0x0D
 %define LF 0x0A
+%define CRLF CR, LF
 
 start:
 	jmp main
 
 
-HelloWorld:
-	db "Hello, World", 0
+msg_hello:			db "Hello, World", CRLF, 0
+msg_read_failed:	db "Read from disk failed!", CRLF, 0
 
 
 main:
 	mov ah, 0x0e ; tty mode
 
-	mov bx, HelloWorld
-	call println
+	; read something from floppy:
+	mov [ebr_drive_number], dl ; Bios should set dl to drive number
+	mov ax, 1 ; LBA = 1, second sector from disk
+	mov cl, 1 ; read 1 sector
+	mov bx, 0x7E00 ; data should be after the bootloader
+	call disk_read
 
-	mov bx, HelloWorld
-	call println
+	mov bx, msg_hello
+	call print
 
-	mov bx, HelloWorld
-	call println
+	mov bx, msg_hello
+	call print
+
+	mov bx, msg_hello
+	call print
 
 	; jmp $
 
@@ -111,6 +119,16 @@ main:
 	jmp $ ; jump to current address (infinite loop) just to be safe
 
 
+floppy_error:
+	mov bx, msg_read_failed
+	call print
+	call wait_key_and_reboot
+
+wait_key_and_reboot:
+	mov ah, 0
+	int 0x16 ; wait for keypress
+	jmp 0x0FFFF:0 ; jump to start of BIOS, basically rebooting
+
 
 ;    ====== void print (const char* bx) ======
 print:
@@ -148,7 +166,7 @@ println:
 
 
 
-; LBA to CHS Address Conversion
+; ===== LBA to CHS Address Conversion
 ; in:
 ;   - ax = LBA Address
 ; out:
@@ -182,17 +200,71 @@ lba_to_chs:
 
 	ret
 
-
-
-; Read Sectors from a disk
-
-disk_read:
-	push ax
-
-
 ; div word (value): simultaneous division and modulo
 ; dx = ax % value
 ; ax = ax / value
+
+
+
+; ===== Read Sectors from a disk
+; inputs:
+;   - ax: LBA address
+;   - cl: number of sectors to read (up to 128)
+;   - dl: drive number
+;   - esbx: memory address where to store read data
+
+disk_read:
+	push ax
+	push bx
+	push cx
+	push dx
+	push di
+
+	push cx ; save cl (number of sectors to read)
+	call lba_to_chs
+	pop ax ; al = number of sectors to read
+
+	mov ah, 0x02
+	mov di, 3 ; retries = 3
+
+.retry:
+	pusha
+	stc ; set carry flag in case BIOS didn't
+	int 0x13
+
+	jnc .done
+
+	; read failed
+	popa
+	call disk_reset
+	dec di ; retries--
+	test di, di
+	jnz .retry
+
+.fail:
+	; after all retries failed:
+	jmp floppy_error
+
+.done:
+	popa
+
+	pop di
+	pop dx
+	pop cx
+	pop bx
+	pop ax
+	ret
+
+# Input: drive number in dl
+disk_reset:
+	pusha
+	mov ah, 0
+	stc
+	int 0x13
+	jc floppy_error
+	popa
+	ret
+
 
 SectorEnd:
 	; Make Sector bootable:
