@@ -53,12 +53,12 @@ msg_read_failed:	db "Read from disk failed!", CRLF, 0
 main:
 	mov ah, 0x0e ; tty mode
 
-	; read something from floppy:
-	mov [ebr_drive_number], dl ; Bios should set dl to drive number
-	mov ax, 1 ; LBA = 1, second sector from disk
-	mov cl, 1 ; read 1 sector
-	mov bx, 0x7E00 ; data should be after the bootloader
-	call disk_read
+	; ; read something from floppy:
+	; mov [ebr_drive_number], dl ; Bios should set dl to drive number
+	; mov ax, 1 ; LBA = 1, second sector from disk
+	; mov cl, 1 ; read 1 sector
+	; mov bx, 0x7E00 ; data should be after the bootloader
+	; call disk_read
 	
 
 	; jmp $
