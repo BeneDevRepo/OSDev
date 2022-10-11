@@ -15,9 +15,9 @@ bdb_bytes_per_sector: dw 512
 bdb_sectors_per_cluster: db 1
 bdb_reserved_sectors: dw 1
 bdb_fat_count: db 2
-bdb_dir_entries_count: dw 0E0h
+bdb_dir_entries_count: dw 0x00E0
 bdb_total_sectors: dw 2880 ; 2880 * 512 = 1.44MB
-bdb_media_descriptor_type: db 0F0h
+bdb_media_descriptor_type: db 0x00F0
 bdb_num_sectors_per_fat: dw 9
 bdb_sectors_per_track: dw 18
 bdb_heads: dw 2
@@ -60,15 +60,6 @@ main:
 	mov bx, 0x7E00 ; data should be after the bootloader
 	call disk_read
 	
-
-	mov bx, msg_hello
-	call print
-
-	mov bx, msg_hello
-	call print
-
-	mov bx, msg_hello
-	call print
 
 	; jmp $
 
@@ -257,7 +248,7 @@ disk_read:
 	pop ax
 	ret
 
-# Input: drive number in dl
+; Input: drive number in dl
 disk_reset:
 	pusha
 	mov ah, 0
