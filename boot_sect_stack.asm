@@ -59,6 +59,7 @@ main:
 	mov cl, 1 ; read 1 sector
 	mov bx, 0x7E00 ; data should be after the bootloader
 	call disk_read
+	
 
 	mov bx, msg_hello
 	call print
@@ -114,9 +115,10 @@ main:
 	mov al, bl
 	int 0x10 ; prints A
 
-
+.halt:
+	cli   ; disable interrupts so cpu cannot exit halted state
 	hlt   ; halt execution
-	jmp $ ; jump to current address (infinite loop) just to be safe
+
 
 
 floppy_error:
