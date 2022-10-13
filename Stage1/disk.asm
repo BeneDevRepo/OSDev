@@ -1,5 +1,74 @@
 [bits 16]    ; Tell Assembler to emit 16-Bit Code
 
+
+
+; ===== Read Sectors from a disk
+; inputs:
+;   - ax: LBA address
+;   - cl: number of sectors to read (up to 128)
+;   - dl: drive number
+;   - esbx: memory address where to store read data
+
+disk_read:
+	push ax
+	push bx
+	push cx
+	push dx
+	push di
+
+	push cx ; save cl (number of sectors to read)
+	call .lba_to_chs
+	pop ax ; al = number of sectors to read
+
+	mov ah, 0x02
+	mov di, 3 ; retries = 3
+
+.retry:
+	pusha
+	stc ; set carry flag in case BIOS didn't
+	int 0x13
+
+	jnc .done
+
+	; read failed
+	popa
+	call .disk_reset
+	dec di ; retries--
+	test di, di
+	jnz .retry
+
+.fail:
+	; after all retries failed:
+	jmp .floppy_error
+
+.done:
+	popa
+
+	pop di
+	pop dx
+	pop cx
+	pop bx
+	pop ax
+	ret
+
+; Input: drive number in dl
+.disk_reset:
+	pusha
+	mov ah, 0
+	stc
+	int 0x13
+	jc .floppy_error
+	popa
+	ret
+
+.floppy_error:
+	mov bx, .msg_read_failed
+	call print
+	call wait_key_and_reboot
+
+
+
+
 ; ===== LBA to CHS Address Conversion
 ; in:
 ;   - ax = LBA Address
@@ -8,9 +77,9 @@
 ;   - cx [bits 6-15]: cylinder
 ;   - dh: head
 
-msg_read_failed: db "Read from disk failed!", CRLF, 0
+.msg_read_failed: db "Read from disk failed!", CRLF, 0
 
-lba_to_chs:
+.lba_to_chs:
 	push ax
 	push dx
 	
@@ -39,69 +108,3 @@ lba_to_chs:
 ; div word (value): simultaneous division and modulo
 ; dx = ax % value
 ; ax = ax / value
-
-
-
-; ===== Read Sectors from a disk
-; inputs:
-;   - ax: LBA address
-;   - cl: number of sectors to read (up to 128)
-;   - dl: drive number
-;   - esbx: memory address where to store read data
-
-disk_read:
-	push ax
-	push bx
-	push cx
-	push dx
-	push di
-
-	push cx ; save cl (number of sectors to read)
-	call lba_to_chs
-	pop ax ; al = number of sectors to read
-
-	mov ah, 0x02
-	mov di, 3 ; retries = 3
-
-.retry:
-	pusha
-	stc ; set carry flag in case BIOS didn't
-	int 0x13
-
-	jnc .done
-
-	; read failed
-	popa
-	call disk_reset
-	dec di ; retries--
-	test di, di
-	jnz .retry
-
-.fail:
-	; after all retries failed:
-	jmp floppy_error
-
-.done:
-	popa
-
-	pop di
-	pop dx
-	pop cx
-	pop bx
-	pop ax
-	ret
-
-; Input: drive number in dl
-disk_reset:
-	pusha
-	mov ah, 0
-	stc
-	int 0x13
-	jc floppy_error
-	popa
-	ret
-
-floppy_error:
-	mov bx, msg_read_failed
-	call print
-	call wait_key_and_reboot

@@ -1,7 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstdint>
-#include <string_view>
+#include <cstring>
 
 struct __attribute__((packed)) BootSector {
 	uint8_t bootJumpIntruction[3]; // jmp short start; nop;
@@ -53,16 +53,17 @@ struct __attribute__((packed)) DirectoryEntry {
 BootSector bootSector;
 uint8_t* fat;
 DirectoryEntry* rootDirectory = nullptr;
+uint32_t rootDirectoryEndSector; // Last sector number that's part of root directory
 
 bool readBootSector(FILE* disk) {
 	fread((char*)&bootSector, sizeof(BootSector), 1, disk);
 	return true;
 }
 
-bool readSectors(FILE* disk, uint32_t lba, uint32_t count, void* out) { // disk, LogicalBlockAddress, numBlocks, output
+bool readSectors(FILE* disk, uint32_t lba, uint32_t count, void* dst) { // disk, LogicalBlockAddress, numBlocks, output
 	bool ok = true;
 	ok &= fseek(disk, lba * bootSector.bytesPerSector, SEEK_SET) == 0;
-	ok &= fread(out, bootSector.bytesPerSector, count, disk) == count;
+	ok &= fread(dst, bootSector.bytesPerSector, count, disk) == count;
 	return ok;
 }
 
@@ -72,26 +73,44 @@ bool readFat(FILE *disk) {
 }
 
 bool readRootDirectory(FILE *disk) {
-	rootDirectory = new DirectoryEntry[bootSector.dirEntriesCount];
-	bool ok = true;
-	ok &= readSectors(
-		disk,
-		bootSector.reservedSectors + bootSector.fatCount * bootSector.sectorsPerFat,
-		bootSector.dirEntriesCount * 32 / bootSector.bytesPerSector,
-		rootDirectory);
-	return ok;
+	const uint32_t lba = bootSector.reservedSectors + bootSector.fatCount * bootSector.sectorsPerFat;
+	const uint32_t size = bootSector.dirEntriesCount * sizeof(DirectoryEntry);
+	const uint32_t numSectors = size / bootSector.bytesPerSector + (size % bootSector.bytesPerSector != 0 ? 1 : 0);
+	rootDirectoryEndSector = lba + numSectors;
+	rootDirectory = new DirectoryEntry[bootSector.dirEntriesCount]; // (numSectors * bootSector.bytesPerSector) bytes
+	return readSectors(disk, lba, numSectors, rootDirectory);
 }
 
-uint16_t fatEntry(uint16_t index) {
-	const auto nibble = [](const uint8_t* buffer, const uint16_t index) {
-		if(index % 2 != 0)
-			return buffer[index / 2] >> 4;
-		return buffer[index / 2] & 0xF;
-	};
+DirectoryEntry *findFile(const char *name) {
+	for(size_t i = 0; i < bootSector.dirEntriesCount; i++)
+		if(memcmp(rootDirectory[i].name, "KERNEL  BIN", 11) == 0)
+			return rootDirectory + i;
+	return nullptr;
+}
 
-	return nibble(fat, index * 3 + 0) << 8
-	     | nibble(fat, index * 3 + 1) << 4
-	     | nibble(fat, index * 3 + 2) << 0;
+
+bool readFile(const DirectoryEntry* file, FILE *disk, uint8_t* dst) {
+	uint32_t currentCluster = file->firstClusterLow; // current cluster
+
+	bool ok = true;
+
+	do {
+		const uint32_t lba = rootDirectoryEndSector + (currentCluster - 2) * bootSector.sectorsPerCluster;
+		// const uint32_t fatVal = fatEntry(currentCluster);
+		// printf("FAT Entry: %04x\n", fatVal);
+
+		ok &= readSectors(disk, lba, bootSector.sectorsPerCluster, dst);
+
+		dst += bootSector.sectorsPerCluster * bootSector.bytesPerSector;
+		
+		const uint32_t fatIndex = currentCluster * 3 / 2;
+		if(currentCluster % 2 == 0)
+			currentCluster = (*(uint16_t*)(fat + fatIndex)) & 0x0FFF; // remove highest nibble
+		else
+			currentCluster = (*(uint16_t*)(fat + fatIndex)) >> 4; // remove lowest nibble
+	} while(ok && currentCluster < 0xFF8);
+
+	return ok;
 }
 
 int main () {
@@ -116,49 +135,49 @@ int main () {
 		return -1;
 	}
 
+	std::cout << "Extracting root Directory...\n";
+
 	if(!readRootDirectory(disk)) {
 		std::cout << "Error reading Root Directory!\n";
 		delete[] rootDirectory;
+		delete[] fat;
 		return -1;
 	}
 
 	std::cout << "Number of root Directory entries: "
 		<< bootSector.dirEntriesCount << "\n";
 
-	for(size_t i = 0; i < bootSector.dirEntriesCount; i++) {
-		const DirectoryEntry& dir = rootDirectory[i];
+	std::cout << "Searching KERNEL.BIN ...\n";
 
-		const std::string_view name((char*)dir.name, 11);
-
-		// std::cout << "Directory: " << name << "\n";
-
-		const uint16_t clusterStart =
-			bootSector.reservedSectors // skip reserved sectors (incuding Boot sector)
-			+ bootSector.fatCount * bootSector.sectorsPerFat // skip File Allocation Table
-			+ (bootSector.dirEntriesCount * 32 / bootSector.bytesPerSector); // skip root directory
-		
-		const uint16_t cluster = dir.firstClusterLow;
-
-		const uint16_t fatVal = fatEntry(cluster);
-
-
-
-		if(name == std::string_view("KERNEL  BIN")) {
-			std::cout << "Kernel found: " << name << "\n";
-			printf("Size: %dB\n", dir.size);
-			printf("First Cluster: %d\n", clusterStart + cluster - 2);
-			printf("FAT Entry: %04x\n", fatVal);
-
-			uint8_t sector[512 + 1]{};
-			readSectors(disk, clusterStart + cluster - 2, 1, sector);
-			std::cout << "File Content: <" << sector << ">\n";
-		}
-		
+	DirectoryEntry *kernel = findFile("KERNEL  BIN");
+	if(kernel == nullptr) {
+		std::cout << "Error finding Kernel File!\n";
+		delete[] rootDirectory;
+		delete[] fat;
+		return -1;
 	}
+
+
+	std::cout << "Reading KERNEL.BIN ...\n";
+	std::cout << "Size: " << kernel->size << " Bytes\n";
+
+	uint8_t *kernelData = new uint8_t[kernel->size + bootSector.bytesPerSector + 1]{};
+	if(!readFile(kernel, disk, kernelData)) {
+		std::cout << "Error reading Kernel File!\n";
+		delete[] kernelData;
+		delete[] rootDirectory;
+		delete[] fat;
+		return -1;
+	}
+
+	std::cout << "Kernel.bin contains: " << (char*)kernelData << "\n";
+
+
+	delete[] kernelData;
+	delete[] rootDirectory;
+	delete[] fat;
 
 	std::cout << "Program finished successfully\n";
 
-	delete[] rootDirectory;
-	delete[] fat;
     return 0;
 }

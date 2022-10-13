@@ -16,7 +16,7 @@ bdb_fat_count: db 2
 bdb_dir_entries_count: dw 0x00E0 ; 224 entries
 bdb_total_sectors: dw 2880 ; 2880 * 512 = 1.44MB
 bdb_media_descriptor_type: db 0x00F0
-bdb_num_sectors_per_fat: dw 9
+bdb_sectors_per_fat: dw 9
 bdb_sectors_per_track: dw 18
 bdb_heads: dw 2
 bdb_hidden_sectors: dd 0
@@ -32,76 +32,114 @@ ebr_volume_label: db "Volume     " ; arbitrary String padded to 11 bytes
 ebr_system_id: db "FAT12   " ; FAT-variant, padded to 8 bytes
 
 
-start: jmp main
+start:
+	; Setup Data Segments:
+	mov ax, 0 ; can't write ds / es directly
+	mov ds, ax ; ds = 0
+	mov es, ax ; es = 0
+
+	; Setup Stack:
+	mov ss, ax
+	mov sp, 0x7C00
+
+	; Correct for any Bios that might load the boot sector into 07C0:0000 instead of 0000:7C00
+	push es
+	push word .after
+	retf    ;  "far return" to .after
+
+.after:
+	mov bx, msg_hello
+	call print
+
+	; store drive number provided by bios
+	mov [ebr_drive_number], dl
 
 
-%include "print.asm"
-%include "disk.asm"
+	; read drive parameters (more secure than relying on data from the disk):
+	push es
+	mov ah, 0x08
+	int 0x13
+	jc .driveParameterReadError
+	pop es
+
+	and cl, 0x3F ; clear 2 most significant bits
+	xor ch, ch   ; clear higher byte
+	mov [bdb_sectors_per_track], cx ; overwrite value provided by FAT
+
+	inc dh
+	mov [bdb_heads], dh ; overwrite value provided by FAT
+	; done reading drive parameters
 
 
-msg_hello:			db "Hello, World", CRLF, 0
+	; read FAT root directory:
+	; ax = lba = fatCount * sectorsPerFat + reservedSectors
+	; bx = sectorsPerFat
+	mov ax, [bdb_fat_count]
+	mov bl, [bdb_sectors_per_fat]
+	mov bl, 0
+	xor bh, bh
+	mul bx     ; ax *= bx
+	add ax, [bdb_reserved_sectors]
+	push ax           ;  ax = lba
+
+	; compute size of root directory:
+	; ax = size = roundUp(dirEntriesCount * sizeof(DirectoryEntry) / bytesPerSector)
+	mov ax, [bdb_dir_entries_count]
+	shl ax, 5 ;   ax *= 32
+	xor dx, dx ; clear dx
+	div word [bdb_bytes_per_sector] ; ax /= bytePerSector
+
+	test dx, dx
+	jz .root_dir_after
+	inc ax  ; ax += 1 if (ax % bytesPerSector != 0)
+
+.root_dir_after:
+	; read root directory:
+	mov cl, al ; number of sectors to read = size of root directory
+	pop ax     ; pop lba
+	mov dl, [ebr_drive_number] ; drive number
+	mov bx, buffer ; es:bx = buffer
+	call disk_read
 
 
 
-main:
-	mov ah, 0x0e ; tty mode
 
-	; ; read something from floppy:
-	; mov [ebr_drive_number], dl ; Bios should set dl to drive number
-	; mov ax, 1 ; LBA = 1, second sector from disk
-	; mov cl, 1 ; read 1 sector
-	; mov bx, 0x7E00 ; data should be after the bootloader
-	; call disk_read
-	
+	; Search for Kernel.bin:
+
+	xor bx, bx ; i = bx = 0
+
+.root_loop_start: ; while (i < numDirEntries):
+	inc bx ; i++
+
+	mov di, buffer
+	add di, bx
+
+
+	cmp bx, bdb_dir_entries_count ; if i == numDirEntries
+	je .root_loop_done ; break;
+	jmp .root_loop_start
+
+.root_loop_done:
+
+
+
+	mov bx, msg_bye
+	call print  ; print "Done."
+
 
 	; jmp $
 
-
-	; ; Setup Data Segments:
-	; mov ax, 0 ; can't write ds / es directly
-	; mov ds, ax
-	; mov es, ax
-
-	mov bp, 0x0400 ; this is an address far away from the loaded boot sector at 0x7c00 so that we don't get overwritten
-	mov sp, bp ; if the stack is empty then sp points to bp
-
-	; Stack grows downward (sp gets decremented)
-
-	push 'A'
-	push 'B'
-	push 'C'
-
-	; to show how the stack grows downwards
-	mov al, [bp - 2] ;  => 'A'
-	int 0x10
-	mov al, [bp - 4] ;  => 'B'
-	int 0x10
-	mov al, [bp - 6] ;  => 'C'
-	int 0x10
-
-
-	mov al, ' '
-	int 0x10
-
-
-	; recover our characters using the standard procedure: 'pop'
-	; We can only pop full words so we need an auxiliary register to manipulate
-	; the lower byte
-	pop bx
-	mov al, bl
-	int 0x10 ; prints C
-
-	pop bx
-	mov al, bl
-	int 0x10 ; prints B
-
-	pop bx
-	mov al, bl
-	int 0x10 ; prints A
+	; mov bp, 0x0400 ; this is an address far away from the loaded boot sector at 0x7c00 so that we don't get overwritten
+	; mov sp, bp ; if the stack is empty then sp points to bp
 
 .halt:
-	cli   ; disable interrupts so cpu cannot exit halted state
+	cli   ; disable interrupts so cpu cannot get out of halted state
 	hlt   ; halt execution
+
+.driveParameterReadError:
+	mov bx, msg_driveParameterReadError
+	call print
+	jmp wait_key_and_reboot
 
 wait_key_and_reboot:
 	mov ah, 0
@@ -110,7 +148,13 @@ wait_key_and_reboot:
 
 
 
+%include "print.asm"
+%include "disk.asm"
 
+
+msg_hello: db CRLF, "Hello, World!", CRLF, "Booting into BeneOS...", CRLF, 0
+msg_bye: db "Done.", CRLF, 0
+msg_driveParameterReadError: db "Error retrieving drive Parameters", CRLF, 0
 
 
 
@@ -122,3 +166,6 @@ SectorEnd:
 	times 510 - ($-$$) db 0 ; Padding ($ is the current position before emitting this line, $$ is the startposition of the current sector)
 
 	dw 0xaa55 ; Magic Number
+
+
+buffer:
