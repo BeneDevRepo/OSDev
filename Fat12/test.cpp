@@ -56,7 +56,7 @@ DirectoryEntry* rootDirectory = nullptr;
 uint32_t rootDirectoryEndSector; // Last sector number that's part of root directory
 
 bool readBootSector(FILE* disk) {
-	fread((char*)&bootSector, sizeof(BootSector), 1, disk);
+	fread(&bootSector, sizeof(BootSector), 1, disk);
 	return true;
 }
 
@@ -122,6 +122,11 @@ int main () {
 	std::cout << "Started Program.\n";
 	
     FILE *disk = fopen("../floppy.img", "rb");
+
+	if(!disk) {
+		std::cout << "Error opening Disk file\n";
+		return -1;
+	}
 
 
 	std::cout << "Reading Boot Sector...\n";
