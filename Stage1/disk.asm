@@ -10,11 +10,13 @@
 ;   - esbx: memory address where to store read data
 
 disk_read:
-	push ax
-	push bx
-	push cx
-	push dx
-	push di
+	pusha
+	; more precise:
+	; push ax
+	; push bx
+	; push cx
+	; push dx
+	; push di
 
 	push cx ; save cl (number of sectors to read)
 	call .lba_to_chs
@@ -44,11 +46,13 @@ disk_read:
 .done:
 	popa
 
-	pop di
-	pop dx
-	pop cx
-	pop bx
-	pop ax
+	popa
+	; more precise:
+	; pop di
+	; pop dx
+	; pop cx
+	; pop bx
+	; pop ax
 	ret
 
 ; Input: drive number in dl
@@ -76,8 +80,6 @@ disk_read:
 ;   - cx [bits 0-5]: sector number
 ;   - cx [bits 6-15]: cylinder
 ;   - dh: head
-
-.msg_read_failed: db "Err3", CRLF, 0 ; Read from disk failed
 
 .lba_to_chs:
 	push ax
@@ -110,3 +112,9 @@ disk_read:
 ; div word (value): simultaneous division and modulo
 ; dx = ax % value
 ; ax = ax / value
+
+
+.msg_read_failed: db "EF", CRLF, 0 ; Read from disk failed
+
+
+

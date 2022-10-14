@@ -149,18 +149,18 @@ int main () {
 		return -1;
 	}
 
-	char *rootC = (char*)rootDirectory;
-	for(size_t y = 0; y < 16; y++) {
-		for(size_t x = 0; x < 32; x++) {
-			const char c = rootC[y * 32 + x];
-			if(c > 'A' && c < 'z')
-				putchar(c);
-			else
-				putchar(' ');
-		}
-		putchar('\n');
-	}
-	return 0;
+	// char *rootC = (char*)rootDirectory;
+	// for(size_t y = 0; y < 16; y++) {
+	// 	for(size_t x = 0; x < 32; x++) {
+	// 		const char c = rootC[y * 32 + x];
+	// 		if(c > 'A' && c < 'z')
+	// 			putchar(c);
+	// 		else
+	// 			putchar(' ');
+	// 	}
+	// 	putchar('\n');
+	// }
+	// return 0;
 
 	std::cout << "Number of root Directory entries: "
 		<< bootSector.dirEntriesCount << "\n";

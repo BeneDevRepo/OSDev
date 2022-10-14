@@ -111,7 +111,12 @@ start:
 	pop ax     ; pop lba
 	mov dl, [ebr_drive_number] ; drive number
 	mov bx, buffer ; es:bx = buffer
+
+	; push ax
+	; push cx
 	call disk_read
+	; pop cx
+	; pop ax
 
 	; save end of root directory for later:
 	mov ch, 0
@@ -158,7 +163,6 @@ start:
 	; bx = i  (0 -> dir_entries_count)
 	; di = rootDir + i
 	; al = j  (0 -> 11)
-.kernel_file_name: db "KERNEL  BIN"
 
 	xor bx, bx ; i = 0
 	mov di, buffer ; pointer to dirEntry (and filename)
@@ -169,7 +173,7 @@ start:
 
 	; Compare filenames:
 	push di ; cmpsb will increment di and si
-	mov si, .kernel_file_name ; si = kernelFileName
+	mov si, kernel_file_name ; si = kernelFileName
 	mov cx, 11 ; compare 11 bytes
 	repe cmpsb ; "repeat while equal" "compare single byte"
 	pop di
@@ -205,18 +209,21 @@ start:
 	mov es, bx
 	mov bx, KERNEL_LOAD_OFFSET
 
-.load_kernel_loop:
+.load_kernel_loop: ; do {
 	mov ax, [kernel_cluster] ; ax = cluster number
-	sub ax, 2 ; first two clusters are reserved
+	sub ax, 2 ; ax = cluster_number - 2  (first two clusters are reserved)
 
 	mov cx, [bdb_sectors_per_cluster]
-	mul cx; ax = sector offset
+	mul cx; ax = lba = (cluster_number - 2) * sectors_per_cluster
 
-	add ax, root_directory_end ; ax = first sector of FAT
+	add ax, [root_directory_end] ; ax = first sector of FAT
 
 	mov cl, 1 ; read 1 sector
 	mov dl, [ebr_drive_number] ; drive number
 	call disk_read
+
+	; ; DEBUG:
+	; jmp .read_finish
 
 	add bx, [bdb_bytes_per_sector] ; #############   MIGHT OVERFLOW, should increment sector register at times, too
 
@@ -231,6 +238,7 @@ start:
 	add si, ax
 	mov ax, [ds:si] ; get FAT table entry (2 full bytes)
 
+	; } while (currentCluster < 0xFF8);
 	or dx, dx
 	jz .even
 
@@ -250,15 +258,59 @@ start:
 
 .read_finish:
 
-	mov dl, [ebr_drive_number] ; pass boot device in dl
-	mov ax, KERNEL_LOAD_SEGMENT ; set segment registers
-	mov ds, ax
-	mov es, ax
+	; ==== Print stage2:
+	mov bx, KERNEL_LOAD_OFFSET
+	; add bx, 512*2
+
+	mov ah, 0x0E ;    [enable tty mode]
+	mov cl, 0 ; y = 0
+
+.printLine:
+	mov ch, 0 ; x = 0
+
+.printChar:
+	mov al, [bx] ; al = *bx
+	; mov al, '#'
+	int 0x10     ;    printChar(al);
+	inc bx
+
+	inc ch ; x++
+	cmp ch, 32 ; x < 32
+	jl .printChar
+
+	mov al, 13 ; \r
+	int 0x10
+	mov al, 10 ; \n
+	int 0x10
+
+	inc cl ; y++
+	cmp cl, 16 ; y < 16
+	jl .printLine
+
+	call wait_key_and_reboot
+	; ==== done printing stage2
+
+
+
+
+
+
+
+
+	
+	; mov dl, [ebr_drive_number] ; pass boot device in dl
+
+	; mov ax, KERNEL_LOAD_SEGMENT ; set segment registers
+	; mov ds, ax
+	; mov es, ax
 
 	; jmp KERNEL_LOAD_SEGMENT:KERNEL_LOAD_OFFSET
 	
-	mov bx, msg_bye
-	call print  ; print "Done."
+	; mov bx, msg_bye
+	; call print  ; print "Done."
+
+
+
 
 
 	; jmp $
@@ -289,10 +341,12 @@ wait_key_and_reboot:
 %include "disk.asm"
 
 
-msg_hello: db CRLF, "Booting BeneOS", CRLF, 0
+kernel_file_name: db "KERNEL  BIN"
+
+msg_hello: db CRLF, "Booting", CRLF, 0
 msg_bye: db "Done.", CRLF, 0
-msg_drive_parameter_read_error: db "Err1", CRLF, 0 ; Error retrieving drive Parameters
-msg_kernel_not_found_error:     db "Err2", CRLF, 0 ; could not find kernel file
+msg_drive_parameter_read_error: db "EP", CRLF, 0 ; Error retrieving drive Parameters
+msg_kernel_not_found_error:     db "EK", CRLF, 0 ; could not find kernel file
 
 
 
