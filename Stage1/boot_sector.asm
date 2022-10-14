@@ -32,6 +32,14 @@ ebr_volume_label: db "Volume     " ; arbitrary String padded to 11 bytes
 ebr_system_id: db "FAT12   " ; FAT-variant, padded to 8 bytes
 
 
+; ===== Not part of File system
+root_directory_end: dw 0 ; gets set when reading root directory
+kernel_cluster: db 0     ; gets set when reading root directory
+
+KERNEL_LOAD_SEGMENT equ 0x2000
+KERNEL_LOAD_OFFSET  equ 0x00
+
+
 start:
 	; Setup Data Segments:
 	mov ax, 0 ; can't write ds / es directly
@@ -55,7 +63,7 @@ start:
 	mov [ebr_drive_number], dl
 
 
-	; read drive parameters (more secure than relying on data from the disk):
+	; ===== read drive parameters (more secure than relying on data from the disk):
 	push es
 	mov ah, 0x08
 	int 0x13
@@ -68,61 +76,187 @@ start:
 
 	inc dh
 	mov [bdb_heads], dh ; overwrite value provided by FAT
-	; done reading drive parameters
+	; ===== done reading drive parameters
 
 
-	; read FAT root directory:
+
+	; ===== read FAT root directory:
+	; --- Compute Root directory start LBA:
 	; ax = lba = fatCount * sectorsPerFat + reservedSectors
-	; bx = sectorsPerFat
-	mov ax, [bdb_fat_count]
-	mov bl, [bdb_sectors_per_fat]
-	mov bl, 0
-	xor bh, bh
-	mul bx     ; ax *= bx
-	add ax, [bdb_reserved_sectors]
-	push ax           ;  ax = lba
+	mov ax, [bdb_fat_count] ; lba = fatCount
+	mov bl, [bdb_sectors_per_fat] ; bl = sectorsPerFat
+	mul bl     ; lba = fat_count * sectorsPerFat
+	add ax, [bdb_reserved_sectors] ; lba = fatCount * sectorsPerFat + reservedSectors
+	push ax           ;  save lba
 
-	; compute size of root directory:
-	; ax = size = roundUp(dirEntriesCount * sizeof(DirectoryEntry) / bytesPerSector)
-	mov ax, [bdb_dir_entries_count]
-	shl ax, 5 ;   ax *= 32
+	; --- Compute size of root directory:
+	; ax = sizeBytes = dirEntriesCount * sizeof(DirEntry)
+	mov ax, [bdb_dir_entries_count] ; ax = dirEntries
+	shl ax, 5 ;   ax = dirEntries * sizeof(DirEntry)
+
+	; --- Compute size of root directory in sectors:
+	; ax = sizeBlocks = roundUp(directorySize / bytesPerSector)
 	xor dx, dx ; clear dx
 	div word [bdb_bytes_per_sector] ; ax /= bytePerSector
 
+	; increment sector count if division had remainder:
 	test dx, dx
-	jz .root_dir_after
+	jz .dont_increment_num_sectors
 	inc ax  ; ax += 1 if (ax % bytesPerSector != 0)
+	.dont_increment_num_sectors:
 
-.root_dir_after:
-	; read root directory:
+
+	; --- read root directory:
 	mov cl, al ; number of sectors to read = size of root directory
 	pop ax     ; pop lba
 	mov dl, [ebr_drive_number] ; drive number
 	mov bx, buffer ; es:bx = buffer
 	call disk_read
 
+	; save end of root directory for later:
+	mov ch, 0
+	add ax, cx ; root_directory_end = lba + numRootDirSectors
+	mov [root_directory_end], ax
+	; ===== done reading Root directory
+
+
+
+
+; 	; ==== Print root directory:
+; 	mov bx, buffer
+; 	mov ah, 0x0E ;    [enable tty mode]
+; 	mov cl, 0 ; y = 0
+
+; .printLine:
+; 	mov ch, 0 ; x = 0
+
+; .printChar:
+; 	mov al, [bx] ; al = *bx
+; 	; mov al, '#'
+; 	int 0x10     ;    printChar(al);
+; 	inc bx
+
+; 	inc ch ; x++
+; 	cmp ch, 32 ; x < 32
+; 	jl .printChar
+
+; 	mov al, 13 ; \r
+; 	int 0x10
+; 	mov al, 10 ; \n
+; 	int 0x10
+
+; 	inc cl ; y++
+; 	cmp cl, 16 ; y < 16
+; 	jl .printLine
+
+; 	call wait_key_and_reboot
+; 	; ==== done printing root directory
 
 
 
 	; Search for Kernel.bin:
+	; bx = i  (0 -> dir_entries_count)
+	; di = rootDir + i
+	; al = j  (0 -> 11)
+.kernel_file_name: db "KERNEL  BIN"
 
-	xor bx, bx ; i = bx = 0
+	xor bx, bx ; i = 0
+	mov di, buffer ; pointer to dirEntry (and filename)
 
-.root_loop_start: ; while (i < numDirEntries):
-	inc bx ; i++
+.root_loop_start:  ; while (i < numDirEntries):
+	cmp bx, [bdb_dir_entries_count] ; if (i == numDirEntries)
+	je .kernel_file_not_found       ;   break;
 
-	mov di, buffer
-	add di, bx
+	; Compare filenames:
+	push di ; cmpsb will increment di and si
+	mov si, .kernel_file_name ; si = kernelFileName
+	mov cx, 11 ; compare 11 bytes
+	repe cmpsb ; "repeat while equal" "compare single byte"
+	pop di
 
+	je .kernel_file_found
 
-	cmp bx, bdb_dir_entries_count ; if i == numDirEntries
-	je .root_loop_done ; break;
+	inc bx                        ; i++
+	add di, 32                    ; move pointer to next directory
 	jmp .root_loop_start
 
-.root_loop_done:
+
+.kernel_file_not_found:
+	mov bx, msg_kernel_not_found_error
+	call print
+	call wait_key_and_reboot
 
 
+.kernel_file_found:
+	; di still points to the directory entry
 
+	mov ax, [di + 26] ; read first cluster index
+	mov [kernel_cluster], ax
+
+	; read FAT:
+	mov ax, [bdb_reserved_sectors]
+	mov bx, buffer
+	mov cl, [bdb_sectors_per_fat]
+	mov dl, [ebr_drive_number]
+	call disk_read
+	
+	; read kernel file FAT chain:
+	mov bx, KERNEL_LOAD_SEGMENT
+	mov es, bx
+	mov bx, KERNEL_LOAD_OFFSET
+
+.load_kernel_loop:
+	mov ax, [kernel_cluster] ; ax = cluster number
+	sub ax, 2 ; first two clusters are reserved
+
+	mov cx, [bdb_sectors_per_cluster]
+	mul cx; ax = sector offset
+
+	add ax, root_directory_end ; ax = first sector of FAT
+
+	mov cl, 1 ; read 1 sector
+	mov dl, [ebr_drive_number] ; drive number
+	call disk_read
+
+	add bx, [bdb_bytes_per_sector] ; #############   MIGHT OVERFLOW, should increment sector register at times, too
+
+	; compute location of next cluster
+	mov ax, [kernel_cluster]
+	mov cx, 3
+	mul cx
+	mov cx, 2
+	div cx ; ax = FAT_index = kernel_cluster * 3 / 2
+
+	mov si, buffer
+	add si, ax
+	mov ax, [ds:si] ; get FAT table entry (2 full bytes)
+
+	or dx, dx
+	jz .even
+
+.odd:
+	shr ax, 4
+	jmp .after_fat_entry_decoding
+
+.even:
+	and ax, 0x0FFF
+
+.after_fat_entry_decoding:
+	cmp ax, 0x0FF8
+	jae .read_finish ; entry >= 0xFF8
+
+	mov [kernel_cluster], ax ; not done yet. FAT entry is the next cluster to be read
+	jmp .load_kernel_loop
+
+.read_finish:
+
+	mov dl, [ebr_drive_number] ; pass boot device in dl
+	mov ax, KERNEL_LOAD_SEGMENT ; set segment registers
+	mov ds, ax
+	mov es, ax
+
+	; jmp KERNEL_LOAD_SEGMENT:KERNEL_LOAD_OFFSET
+	
 	mov bx, msg_bye
 	call print  ; print "Done."
 
@@ -137,7 +271,7 @@ start:
 	hlt   ; halt execution
 
 .driveParameterReadError:
-	mov bx, msg_driveParameterReadError
+	mov bx, msg_drive_parameter_read_error
 	call print
 	jmp wait_key_and_reboot
 
@@ -148,13 +282,17 @@ wait_key_and_reboot:
 
 
 
+
+
+
 %include "print.asm"
 %include "disk.asm"
 
 
-msg_hello: db CRLF, "Hello, World!", CRLF, "Booting into BeneOS...", CRLF, 0
+msg_hello: db CRLF, "Booting BeneOS", CRLF, 0
 msg_bye: db "Done.", CRLF, 0
-msg_driveParameterReadError: db "Error retrieving drive Parameters", CRLF, 0
+msg_drive_parameter_read_error: db "Err1", CRLF, 0 ; Error retrieving drive Parameters
+msg_kernel_not_found_error:     db "Err2", CRLF, 0 ; could not find kernel file
 
 
 

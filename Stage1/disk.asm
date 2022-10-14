@@ -77,12 +77,12 @@ disk_read:
 ;   - cx [bits 6-15]: cylinder
 ;   - dh: head
 
-.msg_read_failed: db "Read from disk failed!", CRLF, 0
+.msg_read_failed: db "Err3", CRLF, 0 ; Read from disk failed
 
 .lba_to_chs:
 	push ax
 	push dx
-	
+
 	xor dx, dx ; dx = 0
 	div word [bdb_sectors_per_track] ; ax = LBA / sectorsPerTrack
                                      ; dx = LBA % sectorsPerTrack
@@ -99,11 +99,13 @@ disk_read:
 	mov ch, al ; ch = cylinder (lower 8 bits)
 	shl ah, 6  ; ah <<= 6
 	or  cl, ah ; cl |= ah   (put upper 2 bits of cylinder into cl)
-	
-	pop dx
+
+	pop ax
+	mov dl, al ; restore dl
 	pop ax
 
 	ret
+
 
 ; div word (value): simultaneous division and modulo
 ; dx = ax % value

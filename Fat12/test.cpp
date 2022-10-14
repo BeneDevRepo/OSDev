@@ -73,9 +73,14 @@ bool readFat(FILE *disk) {
 }
 
 bool readRootDirectory(FILE *disk) {
-	const uint32_t lba = bootSector.reservedSectors + bootSector.fatCount * bootSector.sectorsPerFat;
-	const uint32_t size = bootSector.dirEntriesCount * sizeof(DirectoryEntry);
-	const uint32_t numSectors = size / bootSector.bytesPerSector + (size % bootSector.bytesPerSector != 0 ? 1 : 0);
+	const uint32_t lba =
+			bootSector.reservedSectors
+			+ bootSector.fatCount * bootSector.sectorsPerFat;
+	const uint32_t size =
+			bootSector.dirEntriesCount * sizeof(DirectoryEntry);
+	const uint32_t numSectors =
+			size / bootSector.bytesPerSector
+			+ (size % bootSector.bytesPerSector != 0 ? 1 : 0);
 	rootDirectoryEndSector = lba + numSectors;
 	rootDirectory = new DirectoryEntry[bootSector.dirEntriesCount]; // (numSectors * bootSector.bytesPerSector) bytes
 	return readSectors(disk, lba, numSectors, rootDirectory);
@@ -143,6 +148,19 @@ int main () {
 		delete[] fat;
 		return -1;
 	}
+
+	char *rootC = (char*)rootDirectory;
+	for(size_t y = 0; y < 16; y++) {
+		for(size_t x = 0; x < 32; x++) {
+			const char c = rootC[y * 32 + x];
+			if(c > 'A' && c < 'z')
+				putchar(c);
+			else
+				putchar(' ');
+		}
+		putchar('\n');
+	}
+	return 0;
 
 	std::cout << "Number of root Directory entries: "
 		<< bootSector.dirEntriesCount << "\n";

@@ -23,17 +23,17 @@ print:
 	ret
 
 
-;    ====== void println (const char* bx) ======
-println:
-	pusha       ;    save registers
+; ;    ====== void println (const char* bx) ======
+; println:
+; 	pusha       ;    save registers
 
-	call print  ;    print normally
+; 	call print  ;    print normally
 
-	mov al, CR ;    put '\r' into al as ascii
-	int 0x10    ;    print char
+; 	mov al, CR ;    put '\r' into al as ascii
+; 	int 0x10    ;    print char
 
-	mov al, LF ;    put '\n' into al as ascii
-	int 0x10    ;    print char
+; 	mov al, LF ;    put '\n' into al as ascii
+; 	int 0x10    ;    print char
 
-	popa        ;    restore registers
-	ret
+; 	popa        ;    restore registers
+; 	ret
