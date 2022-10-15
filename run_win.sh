@@ -2,6 +2,7 @@
 
 ./makeIso.sh
 
+	# -s -S \
 qemu-system-x86_64.exe \
 	-m 4G \
 	-cpu max \

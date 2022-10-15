@@ -1,8 +1,14 @@
 [bits 16]    ; Tell Assembler to emit 16-Bit Code
 
-;    ====== void print (const char* bx) ======
-print:
-	pusha        ; save registers
+;    ====== void _cdecl puts (const char* str) ======
+global _puts
+_puts:
+	; pop cx       ; store return address in cx
+	; pop bx       ; bx = str
+	push bp
+	mov bp, sp
+
+	mov bx, [bp + 4]
 
 .p_start:
 	mov al, [bx] ;    char al = *bx;
@@ -15,5 +21,7 @@ print:
 	jmp .p_start  ;    goto p_start;
 
 .p_done:
-	popa         ; restore registers
+	; push bx
+	; push cx
+	pop bp
 	ret

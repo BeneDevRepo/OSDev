@@ -1,4 +1,4 @@
-[org 0x7c00] ; global memory offset (because the boot sector is loaded into memory at location 0x7C00)
+[org 0x7c00] ; global memory offset (because the boot sector is loaded into memory at location 0x0000:0x7C00)
 [bits 16]    ; Tell Assembler to emit 16-Bit Code
 
 ; https://de.wikipedia.org/wiki/File_Allocation_Table#FAT12
@@ -34,15 +34,27 @@ ebr_system_id: db "FAT12   " ; FAT-variant, padded to 8 bytes
 
 ; ===== Not part of File system
 root_directory_end: dw 0 ; gets set when reading root directory
-kernel_cluster: db 0     ; gets set when reading root directory
+stage2_cluster: db 0     ; gets set when reading root directory
 
-KERNEL_LOAD_SEGMENT equ 0x2000
-KERNEL_LOAD_OFFSET  equ 0x00
+STAGE2_LOAD_SEGMENT equ 0x2000
+STAGE2_LOAD_OFFSET  equ 0x0000
 
+
+%define CR 0x0D
+%define LF 0x0A
+%define CRLF CR, LF
+
+
+stage2_file_name: db "STAGE2  BIN" ; Stage 2 Filename
+
+msg_hello: db CRLF, "b00t", CRLF, 0
+; msg_bye: db "Done", 0
+msg_drive_parameter_read_error: db "EP", 0 ; Error retrieving drive Parameters
+msg_stage2_not_found_error:     db "EK", 0 ; could not find Stage 2 file
 
 start:
 	; Setup Data Segments:
-	mov ax, 0 ; can't write ds / es directly
+	mov ax, 0  ; can't write ds / es directly
 	mov ds, ax ; ds = 0
 	mov es, ax ; es = 0
 
@@ -111,12 +123,7 @@ start:
 	pop ax     ; pop lba
 	mov dl, [ebr_drive_number] ; drive number
 	mov bx, buffer ; es:bx = buffer
-
-	; push ax
-	; push cx
 	call disk_read
-	; pop cx
-	; pop ax
 
 	; save end of root directory for later:
 	mov ch, 0
@@ -159,7 +166,7 @@ start:
 
 
 
-	; Search for Kernel.bin:
+	; Search for stage2.bin:
 	; bx = i  (0 -> dir_entries_count)
 	; di = rootDir + i
 	; al = j  (0 -> 11)
@@ -169,33 +176,33 @@ start:
 
 .root_loop_start:  ; while (i < numDirEntries):
 	cmp bx, [bdb_dir_entries_count] ; if (i == numDirEntries)
-	je .kernel_file_not_found       ;   break;
+	je .stage2_not_found       ;   break;
 
 	; Compare filenames:
 	push di ; cmpsb will increment di and si
-	mov si, kernel_file_name ; si = kernelFileName
+	mov si, stage2_file_name ; si = stage2FileName
 	mov cx, 11 ; compare 11 bytes
 	repe cmpsb ; "repeat while equal" "compare single byte"
 	pop di
 
-	je .kernel_file_found
+	je .stage2_found
 
 	inc bx                        ; i++
 	add di, 32                    ; move pointer to next directory
 	jmp .root_loop_start
 
 
-.kernel_file_not_found:
-	mov bx, msg_kernel_not_found_error
+.stage2_not_found:
+	mov bx, msg_stage2_not_found_error
 	call print
 	call wait_key_and_reboot
 
 
-.kernel_file_found:
+.stage2_found:
 	; di still points to the directory entry
 
 	mov ax, [di + 26] ; read first cluster index
-	mov [kernel_cluster], ax
+	mov [stage2_cluster], ax
 
 	; read FAT:
 	mov ax, [bdb_reserved_sectors]
@@ -204,19 +211,22 @@ start:
 	mov dl, [ebr_drive_number]
 	call disk_read
 	
-	; read kernel file FAT chain:
-	mov bx, KERNEL_LOAD_SEGMENT
+	; read stage2 file FAT chain:
+	mov bx, STAGE2_LOAD_SEGMENT
 	mov es, bx
-	mov bx, KERNEL_LOAD_OFFSET
+	mov bx, STAGE2_LOAD_OFFSET
 
-.load_kernel_loop: ; do {
-	mov ax, [kernel_cluster] ; ax = cluster number
+.load_stage2_loop: ; do {
+	mov ax, [stage2_cluster] ; ax = cluster number
 	sub ax, 2 ; ax = cluster_number - 2  (first two clusters are reserved)
 
 	mov cx, [bdb_sectors_per_cluster]
 	mul cx; ax = lba = (cluster_number - 2) * sectors_per_cluster
 
 	add ax, [root_directory_end] ; ax = first sector of FAT
+
+	; ; DEBUG:
+	; mov ax, 30
 
 	mov cl, 1 ; read 1 sector
 	mov dl, [ebr_drive_number] ; drive number
@@ -228,11 +238,11 @@ start:
 	add bx, [bdb_bytes_per_sector] ; #############   MIGHT OVERFLOW, should increment sector register at times, too
 
 	; compute location of next cluster
-	mov ax, [kernel_cluster]
+	mov ax, [stage2_cluster]
 	mov cx, 3
 	mul cx
 	mov cx, 2
-	div cx ; ax = FAT_index = kernel_cluster * 3 / 2
+	div cx ; ax = FAT_index = stage2_cluster * 3 / 2
 
 	mov si, buffer
 	add si, ax
@@ -253,59 +263,53 @@ start:
 	cmp ax, 0x0FF8
 	jae .read_finish ; entry >= 0xFF8
 
-	mov [kernel_cluster], ax ; not done yet. FAT entry is the next cluster to be read
-	jmp .load_kernel_loop
+	mov [stage2_cluster], ax ; not done yet. FAT entry is the next cluster to be read
+	jmp .load_stage2_loop
 
 .read_finish:
 
-	; ==== Print stage2:
-	mov bx, KERNEL_LOAD_OFFSET
-	; add bx, 512*2
+; 	; ==== Print stage2:
+; 	mov bx, STAGE2_LOAD_OFFSET
+; 	; add bx, 512*2
 
-	mov ah, 0x0E ;    [enable tty mode]
-	mov cl, 0 ; y = 0
+; 	mov ah, 0x0E ;    [enable tty mode]
+; 	mov cl, 0 ; y = 0
 
-.printLine:
-	mov ch, 0 ; x = 0
+; .printLine:
+; 	mov ch, 0 ; x = 0
 
-.printChar:
-	mov al, [bx] ; al = *bx
-	; mov al, '#'
-	int 0x10     ;    printChar(al);
-	inc bx
+; .printChar:
+; 	; mov al, [bx] ; al = *bx
+; 	mov al, [es:bx] ; al = *bx
+; 	; mov al, '#'
+; 	int 0x10     ;    printChar(al);
+; 	inc bx
 
-	inc ch ; x++
-	cmp ch, 32 ; x < 32
-	jl .printChar
+; 	inc ch ; x++
+; 	cmp ch, 32 ; x < 32
+; 	jl .printChar
 
-	mov al, 13 ; \r
-	int 0x10
-	mov al, 10 ; \n
-	int 0x10
+; 	mov al, 13 ; \r
+; 	int 0x10
+; 	mov al, 10 ; \n
+; 	int 0x10
 
-	inc cl ; y++
-	cmp cl, 16 ; y < 16
-	jl .printLine
+; 	inc cl ; y++
+; 	cmp cl, 16 ; y < 16
+; 	jl .printLine
 
-	call wait_key_and_reboot
-	; ==== done printing stage2
-
-
-
-
-
-
-
+; 	call wait_key_and_reboot
+; 	; ==== done printing stage2
 
 	
-	; mov dl, [ebr_drive_number] ; pass boot device in dl
+	mov dl, [ebr_drive_number] ; pass boot device in dl
 
-	; mov ax, KERNEL_LOAD_SEGMENT ; set segment registers
-	; mov ds, ax
-	; mov es, ax
+	mov ax, STAGE2_LOAD_SEGMENT ; set segment registers
+	mov ds, ax
+	mov es, ax
 
-	; jmp KERNEL_LOAD_SEGMENT:KERNEL_LOAD_OFFSET
-	
+	jmp STAGE2_LOAD_SEGMENT:STAGE2_LOAD_OFFSET
+
 	; mov bx, msg_bye
 	; call print  ; print "Done."
 
@@ -339,14 +343,6 @@ wait_key_and_reboot:
 
 %include "print.asm"
 %include "disk.asm"
-
-
-kernel_file_name: db "KERNEL  BIN"
-
-msg_hello: db CRLF, "Booting", CRLF, 0
-msg_bye: db "Done.", CRLF, 0
-msg_drive_parameter_read_error: db "EP", CRLF, 0 ; Error retrieving drive Parameters
-msg_kernel_not_found_error:     db "EK", CRLF, 0 ; could not find kernel file
 
 
 

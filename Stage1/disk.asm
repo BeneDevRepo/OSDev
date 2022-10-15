@@ -1,7 +1,5 @@
 [bits 16]    ; Tell Assembler to emit 16-Bit Code
 
-
-
 ; ===== Read Sectors from a disk
 ; inputs:
 ;   - ax: LBA address
@@ -10,13 +8,13 @@
 ;   - esbx: memory address where to store read data
 
 disk_read:
-	pusha
+	; pusha
 	; more precise:
-	; push ax
-	; push bx
-	; push cx
-	; push dx
-	; push di
+	push ax
+	push bx
+	push cx
+	push dx
+	push di
 
 	push cx ; save cl (number of sectors to read)
 	call .lba_to_chs
@@ -46,13 +44,13 @@ disk_read:
 .done:
 	popa
 
-	popa
+	; popa
 	; more precise:
-	; pop di
-	; pop dx
-	; pop cx
-	; pop bx
-	; pop ax
+	pop di
+	pop dx
+	pop cx
+	pop bx
+	pop ax
 	ret
 
 ; Input: drive number in dl
