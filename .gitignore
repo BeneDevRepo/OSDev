@@ -3,3 +3,6 @@ build/
 *.o
 *.bin
 *.img
+*.obj
+*.map
+*.err
