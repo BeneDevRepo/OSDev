@@ -2,7 +2,7 @@
 
 # first install:
 # Ubuntu:  sudo apt-get install    build-essential texinfo binutils-dev libgmp3-dev libmpc-dev libmpfr-dev
-# Arch:    sudo pacman -S          base-devel      texinfo binutils        gmp      lipmpc        mpfr
+# Arch:    sudo pacman -S          base-devel      texinfo binutils        gmp      libmpc        mpfr
 
 mkdir -p toolchain/gcc-build
 
