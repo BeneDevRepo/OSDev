@@ -1,5 +1,7 @@
 #!/bin/bash -li
 
+export PATH="$(realpath toolchain/bin):$PATH"
+
 ./makeIso.sh
 
 	# -s -S \

@@ -2,7 +2,7 @@
 
 section _ENTRY class=CODE
 
-extern _cstart_
+; extern _cstart_
 
 global entry
 entry:
@@ -11,8 +11,8 @@ entry:
 	; setup stack:
     mov ax, ds
     mov ss, ax
-    ; mov sp, 0
-    mov sp, 0xFFF0
+    mov sp, 0
+    ; mov sp, 0xFFF0
     mov bp, sp
 
 	; disable legacy 20-bit address line wrapping (enable A20 gate):
@@ -20,29 +20,55 @@ entry:
 	call loadGDT
 
 	; set protection enable flag in CR0:
-    ; mov eax, cr0
-    ; or al, 1
-    ; mov cr0, eax
+    mov eax, cr0
+    or al, 1
+    mov cr0, eax
 
-	sti ; re-enable interrupts
+	; sti ; re-enable interrupts
 
     ; far jump into protected mode:
-    ; jmp dword 08h:.pmode
+    jmp dword 08h:.pmode
 
 .pmode:
-	; [bits 32]
+	[bits 32]
 
 	; setup segment registers
+	mov ax, 0x10
+	mov ds, ax
+	mov ss, ax
 
-	xor dh, dh ; boot drive is passed in dl, so dh should be 0 before pushing to stack
-	push dx    ; push boot drive to stack as parameter for _cstart_
-	call _cstart_ ; call c entry point
+
+	; xor dh, dh ; boot drive is passed in dl, so dh should be 0 before pushing to stack
+	; push dx    ; push boot drive to stack as parameter for _cstart_
+	; call _cstart_ ; call c entry point
 
 	; mov bx, msg_hello
 	; call print
 
+	mov esi, msg_hello
+	mov edi, screenBuffer
+	cld
+
+.loop:
+	lodsb
+	or al, al
+	jz .done
+
+	mov [edi], al
+	inc edi
+
+	mov [edi], byte 0x2
+	inc edi
+
+	jmp .loop
+	
+.done:
+	jmp $
 	cli
 	hlt
+
+
+
 
 
 enableA20:
@@ -80,12 +106,14 @@ enableA20:
     ret
 
 .waitInput: ; wait for bit 2 to become 0
+	[bits 16]
 	in al, kbdControllerCommandPort
 	test al, 2 ; bitwise and
 	jnz .waitInput
 	ret
 
 .waitOutput: ; wait for bit 1 to become 1
+	[bits 16]
 	in al, kbdControllerCommandPort
 	test al, 1 ; bitwise and
 	jz .waitOutput
@@ -98,6 +126,8 @@ kbdControllerDisableKeyboard        equ 0xAD
 kbdControllerEnableKeyboard         equ 0xAE
 kbdControllerReadCtrlOutputPort     equ 0xD0
 kbdControllerWriteCtrlOutputPort    equ 0xD1
+
+screenBuffer: equ 0xB8000
 
 
 loadGDT:
@@ -148,9 +178,6 @@ g_GDTDesc:  dw g_GDTDesc - g_GDT - 1    ; limit = size of GDT
 
 
 
-
-
-
 ; ; global entry:
 ; jmp start
 
@@ -191,6 +218,10 @@ g_GDTDesc:  dw g_GDTDesc - g_GDT - 1    ; limit = size of GDT
 ; %include "print.asm"
 ; ; %include "disk.asm"
 
+; %define CR 0x0D
+; %define LF 0x0A
+; %define CRLF CR, LF
 
+msg_hello: db "Executing Stage 2", 0
 ; msg_hello: db CRLF, "Executing Stage 2", CRLF, 0
 ; msg_bye: db "Done.", CRLF, 0

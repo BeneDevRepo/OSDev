@@ -20,7 +20,8 @@ wcc -d3 -s -wx -ms -zl -zq main.c
 wcc -d3 -s -wx -ms -zl -zq stdio.c
 
 echo "-- linking stage 2..."
-wlink NAME stage2.bin FILE \{ entry.obj main.obj x86.obj stdio.obj \} OPTION MAP=stage2.map @linker.lnk
+# wlink NAME stage2.bin FILE \{ entry.obj main.obj x86.obj stdio.obj \} OPTION MAP=stage2.map @linker.lnk
+wlink NAME stage2.bin FILE \{ entry.obj \} OPTION MAP=stage2.map @linker.lnk
 
 (rm *.err > /dev/null 2>&1)& # remove error files produced by wcc compiler
 
