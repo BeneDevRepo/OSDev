@@ -2,5 +2,5 @@
 
 #include "x86.h"
 
-void _cdecl printf(const char *fmt, ...);
+void __attribute__((cdecl)) printf(const char *fmt, ...);
 

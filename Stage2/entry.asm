@@ -16,37 +16,37 @@ entry:
     mov bp, sp
 
 	; disable legacy 20-bit address line wrapping (enable A20 gate):
-	call enableA20
-	call loadGDT
+	; call enableA20
+	; call loadGDT
 
 	; set protection enable flag in CR0:
-    mov eax, cr0
-    or al, 1
-    mov cr0, eax
+    ; mov eax, cr0
+    ; or al, 1
+    ; mov cr0, eax
 
-	; sti ; re-enable interrupts
+	sti ; re-enable interrupts
 
     ; far jump into protected mode:
-    jmp dword 08h:.pmode
+    ; jmp dword 08h:.pmode
 
 .pmode:
-	[bits 32]
+	; [bits 32]
 
 	; setup segment registers
-	mov ax, 0x10
-	mov ds, ax
-	mov ss, ax
+	; mov ax, 0x10
+	; mov ds, ax
+	; mov ss, ax
 
 
 	; xor dh, dh ; boot drive is passed in dl, so dh should be 0 before pushing to stack
 	; push dx    ; push boot drive to stack as parameter for _cstart_
 	; call _cstart_ ; call c entry point
 
-	; mov bx, msg_hello
-	; call print
+	mov bx, msg_hello
+	call print
 
-	mov esi, msg_hello
-	mov edi, screenBuffer
+	; mov esi, msg_hello
+	; mov edi, screenBuffer
 	cld
 
 .loop:
@@ -215,7 +215,7 @@ g_GDTDesc:  dw g_GDTDesc - g_GDT - 1    ; limit = size of GDT
 
 
 
-; %include "print.asm"
+%include "../Stage1/print.asm"
 ; ; %include "disk.asm"
 
 ; %define CR 0x0D
