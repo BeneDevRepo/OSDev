@@ -1,7 +1,22 @@
 #include "stdio.h"
 
-#include "stdint.h"
+// #include "stdint.h"
 
+// const unsigned SCREEN_WIDTH = 80;
+// const unsigned SCREEN_HEIGHT = 25;
+// uint8_t *const screenBuffer = (uint8_t*)0xB8000;
+
+// void putchar(const uint32_t x, const uint32_t y, const char c) {
+// 	screenBuffer[(y * SCREEN_WIDTH + x) * 2] = c;
+// }
+
+// void putcolor(const uint32_t x, const uint32_t y, const uint8_t color) {
+// 	screenBuffer[(y * SCREEN_WIDTH + x) * 2 + 1] = color;
+// }
+
+// uint8_t color(const uint8_t foreground, const uint8_t background) {
+// 	return background << 4 | foreground;
+// }
 
 // typedef enum {
 // 	NORMAL,

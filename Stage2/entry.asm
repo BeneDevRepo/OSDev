@@ -1,141 +1,143 @@
-[bits 16]    ; Tell Assembler to emit 16-Bit Code
+bits 16
 
-section _ENTRY class=CODE
+section .entry
 
-; extern _cstart_
+extern __bss_start
+extern __end
+extern _init
 
+extern start
 global entry
-entry:
-	cli ; disable interrupts
 
-	; setup stack:
+entry:
+    cli
+
+    ; save boot drive
+    mov [g_BootDrive], dl
+    mov [g_BootPartitionOff], si
+    mov [g_BootPartitionSeg], di
+
+    ; setup stack
     mov ax, ds
     mov ss, ax
-    mov sp, 0
-    ; mov sp, 0xFFF0
+    mov sp, 0xFFF0
     mov bp, sp
 
-	; disable legacy 20-bit address line wrapping (enable A20 gate):
-	; call enableA20
-	; call loadGDT
+    ; switch to protected mode
+    call EnableA20          ; 2 - Enable A20 gate
+    call LoadGDT            ; 3 - Load GDT
 
-	; set protection enable flag in CR0:
-    ; mov eax, cr0
-    ; or al, 1
-    ; mov cr0, eax
+    ; 4 - set protection enable flag in CR0
+    mov eax, cr0
+    or al, 1
+    mov cr0, eax
 
-	sti ; re-enable interrupts
-
-    ; far jump into protected mode:
-    ; jmp dword 08h:.pmode
+    ; 5 - far jump into protected mode
+    jmp dword 08h:.pmode
 
 .pmode:
-	; [bits 32]
+    ; we are now in protected mode!
+    [bits 32]
+    
+    ; 6 - setup segment registers
+    mov ax, 0x10
+    mov ds, ax
+    mov ss, ax
+   
+    ; clear bss (uninitialized data)
+    mov edi, __bss_start
+    mov ecx, __end
+    sub ecx, edi
+    mov al, 0
+    cld
+    rep stosb
 
-	; setup segment registers
-	; mov ax, 0x10
-	; mov ds, ax
-	; mov ss, ax
+    ; call global constructors
+    call _init
 
+    ; expect boot drive in dl, send it as argument to cstart function
+    mov dx, [g_BootPartitionSeg]
+    shl edx, 16
+    mov dx, [g_BootPartitionOff]
+    push edx
 
-	; xor dh, dh ; boot drive is passed in dl, so dh should be 0 before pushing to stack
-	; push dx    ; push boot drive to stack as parameter for _cstart_
-	; call _cstart_ ; call c entry point
+    xor edx, edx
+    mov dl, [g_BootDrive]
+    push edx
+    call start
 
-	mov bx, msg_hello
-	call print
-
-	; mov esi, msg_hello
-	; mov edi, screenBuffer
-	cld
-
-.loop:
-	lodsb
-	or al, al
-	jz .done
-
-	mov [edi], al
-	inc edi
-
-	mov [edi], byte 0x2
-	inc edi
-
-	jmp .loop
-	
-.done:
-	jmp $
-	cli
-	hlt
+    cli
+    hlt
 
 
-
-
-
-enableA20:
-	[bits 16]
+EnableA20:
+    [bits 16]
     ; disable keyboard
-    call .waitInput
-    mov al, kbdControllerDisableKeyboard
-    out kbdControllerCommandPort, al
+    call A20WaitInput
+    mov al, KbdControllerDisableKeyboard
+    out KbdControllerCommandPort, al
 
     ; read control output port
-    call .waitInput
-    mov al, kbdControllerReadCtrlOutputPort
-    out kbdControllerCommandPort, al
+    call A20WaitInput
+    mov al, KbdControllerReadCtrlOutputPort
+    out KbdControllerCommandPort, al
 
-    call .waitOutput
-    in al, kbdControllerDataPort
+    call A20WaitOutput
+    in al, KbdControllerDataPort
     push eax
 
     ; write control output port
-    call .waitInput
-    mov al, kbdControllerWriteCtrlOutputPort
-    out kbdControllerCommandPort, al
+    call A20WaitInput
+    mov al, KbdControllerWriteCtrlOutputPort
+    out KbdControllerCommandPort, al
     
-    call .waitInput
+    call A20WaitInput
     pop eax
     or al, 2                                    ; bit 2 = A20 bit
-    out kbdControllerDataPort, al
+    out KbdControllerDataPort, al
 
     ; enable keyboard
-    call .waitInput
-    mov al, kbdControllerEnableKeyboard
-    out kbdControllerCommandPort, al
+    call A20WaitInput
+    mov al, KbdControllerEnableKeyboard
+    out KbdControllerCommandPort, al
 
-    call .waitInput
+    call A20WaitInput
     ret
 
-.waitInput: ; wait for bit 2 to become 0
-	[bits 16]
-	in al, kbdControllerCommandPort
-	test al, 2 ; bitwise and
-	jnz .waitInput
-	ret
 
-.waitOutput: ; wait for bit 1 to become 1
-	[bits 16]
-	in al, kbdControllerCommandPort
-	test al, 1 ; bitwise and
-	jz .waitOutput
-	ret
+A20WaitInput:
+    [bits 16]
+    ; wait until status bit 2 (input buffer) is 0
+    ; by reading from command port, we read status byte
+    in al, KbdControllerCommandPort
+    test al, 2
+    jnz A20WaitInput
+    ret
 
-
-kbdControllerDataPort               equ 0x60
-kbdControllerCommandPort            equ 0x64
-kbdControllerDisableKeyboard        equ 0xAD
-kbdControllerEnableKeyboard         equ 0xAE
-kbdControllerReadCtrlOutputPort     equ 0xD0
-kbdControllerWriteCtrlOutputPort    equ 0xD1
-
-screenBuffer: equ 0xB8000
+A20WaitOutput:
+    [bits 16]
+    ; wait until status bit 1 (output buffer) is 1 so it can be read
+    in al, KbdControllerCommandPort
+    test al, 1
+    jz A20WaitOutput
+    ret
 
 
-loadGDT:
+LoadGDT:
     [bits 16]
     lgdt [g_GDTDesc]
     ret
 
 
+
+KbdControllerDataPort               equ 0x60
+KbdControllerCommandPort            equ 0x64
+KbdControllerDisableKeyboard        equ 0xAD
+KbdControllerEnableKeyboard         equ 0xAE
+KbdControllerReadCtrlOutputPort     equ 0xD0
+KbdControllerWriteCtrlOutputPort    equ 0xD1
+
+ScreenBuffer                        equ 0xB8000
 
 g_GDT:      ; NULL descriptor
             dq 0
@@ -175,53 +177,6 @@ g_GDT:      ; NULL descriptor
 g_GDTDesc:  dw g_GDTDesc - g_GDT - 1    ; limit = size of GDT
             dd g_GDT                    ; address of GDT
 
-
-
-
-; ; global entry:
-; jmp start
-
-; boot_drive_number: db 0
-
-
-; KERNEL_LOAD_SEGMENT equ 0x2000
-; KERNEL_LOAD_OFFSET  equ 0x00
-
-
-
-; start:
-; 	mov [boot_drive_number], dl ; store drive number provided by boot sector
-
-; 	mov bx, msg_hello
-; 	call print
-
-; 	; setup stack
-;     mov ax, ds
-;     mov ss, ax
-;     mov sp, 0xFFF0
-;     mov bp, sp
-
-; .halt:
-; 	cli   ; disable interrupts so cpu cannot get out of halted state
-; 	hlt   ; halt execution
-
-
-; wait_key_and_reboot:
-; 	mov ah, 0
-; 	int 0x16 ; wait for keypress
-; 	jmp 0x0FFFF:0 ; jump to start of BIOS, basically rebooting
-
-
-
-
-
-%include "../Stage1/print.asm"
-; ; %include "disk.asm"
-
-; %define CR 0x0D
-; %define LF 0x0A
-; %define CRLF CR, LF
-
-msg_hello: db "Executing Stage 2", 0
-; msg_hello: db CRLF, "Executing Stage 2", CRLF, 0
-; msg_bye: db "Done.", CRLF, 0
+g_BootDrive: db 0
+g_BootPartitionSeg: dw 0
+g_BootPartitionOff: dw 0

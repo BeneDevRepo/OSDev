@@ -36,13 +36,16 @@ ebr_system_id: db "FAT12   " ; FAT-variant, padded to 8 bytes
 root_directory_end: dw 0 ; gets set when reading root directory
 stage2_cluster: db 0     ; gets set when reading root directory
 
-STAGE2_LOAD_SEGMENT equ 0x2000
-STAGE2_LOAD_OFFSET  equ 0x0000
+; STAGE2_LOAD_SEGMENT equ 0x2000
+; STAGE2_LOAD_OFFSET  equ 0x0000
+STAGE2_LOAD_SEGMENT equ 0x0
+STAGE2_LOAD_OFFSET  equ 0x500
 
 
 %define CR 0x0D
 %define LF 0x0A
 %define CRLF CR, LF
+
 
 
 stage2_file_name: db "STAGE2  BIN" ; Stage 2 Filename
@@ -51,6 +54,7 @@ msg_hello: db CRLF, "b00t", CRLF, 0
 ; msg_bye: db "Done", 0
 msg_drive_parameter_read_error: db "EP", 0 ; Error retrieving drive Parameters
 msg_stage2_not_found_error:     db "EK", 0 ; could not find Stage 2 file
+
 
 start:
 	; Setup Data Segments:
@@ -131,41 +135,6 @@ start:
 	mov [root_directory_end], ax
 	; ===== done reading Root directory
 
-
-
-
-; 	; ==== Print root directory:
-; 	mov bx, buffer
-; 	mov ah, 0x0E ;    [enable tty mode]
-; 	mov cl, 0 ; y = 0
-
-; .printLine:
-; 	mov ch, 0 ; x = 0
-
-; .printChar:
-; 	mov al, [bx] ; al = *bx
-; 	; mov al, '#'
-; 	int 0x10     ;    printChar(al);
-; 	inc bx
-
-; 	inc ch ; x++
-; 	cmp ch, 32 ; x < 32
-; 	jl .printChar
-
-; 	mov al, 13 ; \r
-; 	int 0x10
-; 	mov al, 10 ; \n
-; 	int 0x10
-
-; 	inc cl ; y++
-; 	cmp cl, 16 ; y < 16
-; 	jl .printLine
-
-; 	call wait_key_and_reboot
-; 	; ==== done printing root directory
-
-
-
 	; Search for stage2.bin:
 	; bx = i  (0 -> dir_entries_count)
 	; di = rootDir + i
@@ -225,15 +194,9 @@ start:
 
 	add ax, [root_directory_end] ; ax = first sector of FAT
 
-	; ; DEBUG:
-	; mov ax, 30
-
 	mov cl, 1 ; read 1 sector
 	mov dl, [ebr_drive_number] ; drive number
 	call disk_read
-
-	; ; DEBUG:
-	; jmp .read_finish
 
 	add bx, [bdb_bytes_per_sector] ; #############   MIGHT OVERFLOW, should increment sector register at times, too
 
@@ -267,41 +230,6 @@ start:
 	jmp .load_stage2_loop
 
 .read_finish:
-
-; 	; ==== Print stage2:
-; 	mov bx, STAGE2_LOAD_OFFSET
-; 	; add bx, 512*2
-
-; 	mov ah, 0x0E ;    [enable tty mode]
-; 	mov cl, 0 ; y = 0
-
-; .printLine:
-; 	mov ch, 0 ; x = 0
-
-; .printChar:
-; 	; mov al, [bx] ; al = *bx
-; 	mov al, [es:bx] ; al = *bx
-; 	; mov al, '#'
-; 	int 0x10     ;    printChar(al);
-; 	inc bx
-
-; 	inc ch ; x++
-; 	cmp ch, 32 ; x < 32
-; 	jl .printChar
-
-; 	mov al, 13 ; \r
-; 	int 0x10
-; 	mov al, 10 ; \n
-; 	int 0x10
-
-; 	inc cl ; y++
-; 	cmp cl, 16 ; y < 16
-; 	jl .printLine
-
-; 	call wait_key_and_reboot
-; 	; ==== done printing stage2
-
-	
 	mov dl, [ebr_drive_number] ; pass boot device in dl
 
 	mov ax, STAGE2_LOAD_SEGMENT ; set segment registers
@@ -310,14 +238,6 @@ start:
 
 	jmp STAGE2_LOAD_SEGMENT:STAGE2_LOAD_OFFSET
 
-	; mov bx, msg_bye
-	; call print  ; print "Done."
-
-
-
-
-
-	; jmp $
 
 	; mov bp, 0x0400 ; this is an address far away from the loaded boot sector at 0x7c00 so that we don't get overwritten
 	; mov sp, bp ; if the stack is empty then sp points to bp
@@ -338,12 +258,8 @@ wait_key_and_reboot:
 
 
 
-
-
-
 %include "print.asm"
 %include "disk.asm"
-
 
 
 
