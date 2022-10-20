@@ -20,19 +20,22 @@ nasm -f elf crtn.asm -o crtn.o
 echo "-- compiling c code..."
 # -g: debug symbols
 # i686-elf-gcc -ffreestanding -mno-red-zone -fno-exceptions -fno-rtti -c  main.c -o  main.o
-# i686-elf-gcc -ffreestanding -mno-red-zone -fno-exceptions -fno-rtti -c stdio.c -o stdio.o
-i686-elf-gcc -ffreestanding -mno-red-zone -fno-exceptions -c  main.c -o  main.o
+i686-elf-g++ -ffreestanding -mno-red-zone -fno-exceptions -fno-rtti -c  main.cpp -o  main.o
+i686-elf-gcc -ffreestanding -mno-red-zone -fno-exceptions -fno-rtti -c stdio.cpp -o stdio.o
 # i686-elf-gcc -ffreestanding -mno-red-zone -fno-exceptions -c stdio.c -o stdio.o
 
 echo "-- linking stage 2..."
-i686-elf-gcc \
+i686-elf-g++ \
     -T link.ld \
     -o stage2.bin \
 	-ffreestanding \
 	-nostdlib \
     -Wl,-Map=stage2.map \
-    crti.o entry.o main.o crtn.o \
+    crti.o entry.o main.o stdio.o crtn.o \
     -lgcc
+    # crti.o crtbegin.o entry.o main.o crtend.o crtn.o \
+
+	# -L $(realpath ../toolchain/lib/gcc/i686-elf/12.2.0) \
     # crti.o crtbegin.o entry.o main.o crtend.o crtn.o \
     # entry.o main.o stdio.o crti.o crtbegin.o crtend.o crtn.o \
 

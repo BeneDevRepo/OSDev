@@ -10,6 +10,7 @@ extern start
 global entry
 
 entry:
+	[bits 16]
     cli
 
     ; save boot drive
@@ -38,12 +39,15 @@ entry:
 .pmode:
     ; we are now in protected mode!
     [bits 32]
-    
-    ; 6 - setup segment registers
+
+    ; 6 - setup (non-code-) segment registers
     mov ax, 0x10
     mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
     mov ss, ax
-   
+
     ; clear bss (uninitialized data)
     mov edi, __bss_start
     mov ecx, __end

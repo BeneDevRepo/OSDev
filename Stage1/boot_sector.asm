@@ -33,6 +33,8 @@ ebr_system_id: db "FAT12   " ; FAT-variant, padded to 8 bytes
 
 
 ; ===== Not part of File system
+root_directory_size: db 0 ; gets set when reading root directory
+root_directory_start: dw 0 ; gets set when reading root directory
 root_directory_end: dw 0 ; gets set when reading root directory
 stage2_cluster: db 0     ; gets set when reading root directory
 
@@ -102,8 +104,10 @@ start:
 	mov ax, [bdb_fat_count] ; lba = fatCount
 	mov bl, [bdb_sectors_per_fat] ; bl = sectorsPerFat
 	mul bl     ; lba = fat_count * sectorsPerFat
+	; xor bh, bh
+	; mul bx
 	add ax, [bdb_reserved_sectors] ; lba = fatCount * sectorsPerFat + reservedSectors
-	push ax           ;  save lba
+	mov [root_directory_start], ax ;  save lba (start of root directory)
 
 	; --- Compute size of root directory:
 	; ax = sizeBytes = dirEntriesCount * sizeof(DirEntry)
@@ -120,18 +124,21 @@ start:
 	jz .dont_increment_num_sectors
 	inc ax  ; ax += 1 if (ax % bytesPerSector != 0)
 	.dont_increment_num_sectors:
+	mov [root_directory_size], al ; save size of root directory (in number of sectors):
 
 
 	; --- read root directory:
-	mov cl, al ; number of sectors to read = size of root directory
-	pop ax     ; pop lba
+	mov cl, [root_directory_size] ; number of sectors to read = size of root directory
+	mov ax, [root_directory_start] ; load lba
 	mov dl, [ebr_drive_number] ; drive number
 	mov bx, buffer ; es:bx = buffer
 	call disk_read
 
-	; save end of root directory for later:
-	mov ch, 0
-	add ax, cx ; root_directory_end = lba + numRootDirSectors
+	; compute end of root directory for later:
+	mov ax, [root_directory_start]
+	mov cl, [root_directory_size]
+	xor ch, ch
+	add ax, cx ; root_dir_end = root_dir_start + root_dir_size
 	mov [root_directory_end], ax
 	; ===== done reading Root directory
 
@@ -144,21 +151,22 @@ start:
 	mov di, buffer ; pointer to dirEntry (and filename)
 
 .root_loop_start:  ; while (i < numDirEntries):
-	cmp bx, [bdb_dir_entries_count] ; if (i == numDirEntries)
-	je .stage2_not_found       ;   break;
-
 	; Compare filenames:
-	push di ; cmpsb will increment di and si
 	mov si, stage2_file_name ; si = stage2FileName
 	mov cx, 11 ; compare 11 bytes
+	push di ; cmpsb will increment di and si
 	repe cmpsb ; "repeat while equal" "compare single byte"
 	pop di
 
 	je .stage2_found
 
-	inc bx                        ; i++
 	add di, 32                    ; move pointer to next directory
-	jmp .root_loop_start
+	inc bx                        ; i++
+
+	cmp bx, [bdb_dir_entries_count] ; if (i == numDirEntries)
+	jl .root_loop_start
+
+	jmp .stage2_not_found       ;   break;
 
 
 .stage2_not_found:
@@ -186,13 +194,12 @@ start:
 	mov bx, STAGE2_LOAD_OFFSET
 
 .load_stage2_loop: ; do {
-	mov ax, [stage2_cluster] ; ax = cluster number
-	sub ax, 2 ; ax = cluster_number - 2  (first two clusters are reserved)
-
-	mov cx, [bdb_sectors_per_cluster]
-	mul cx; ax = lba = (cluster_number - 2) * sectors_per_cluster
-
-	add ax, [root_directory_end] ; ax = first sector of FAT
+	                                   ; ax = first cluster = (stage2_cluster - 2) * sectors_per_cluster + start_sector
+                                       ;     start sector = reserved + fats + root directory size = 1 + 18 + 134 = 33
+	mov ax, [stage2_cluster]           ; ax = stage2_cluster
+	sub ax, 2                          ; ax = stage2_cluster - 2  (first two clusters are reserved)
+	mul byte [bdb_sectors_per_cluster] ; ax = (stage2_cluster - 2) * sectors_per_cluster
+	add ax, [root_directory_end]       ; ax = (stage2_cluster - 2) * sectors_per_cluster + start_sector
 
 	mov cl, 1 ; read 1 sector
 	mov dl, [ebr_drive_number] ; drive number

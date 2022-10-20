@@ -7,3 +7,4 @@ toolchain/
 *.obj
 *.map
 *.err
+bx_enh_dbg.ini
