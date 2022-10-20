@@ -1,5 +1,4 @@
 #include "stdint.h"
-// #include "x86.h"
 #include "stdio.h"
 
 // #include <stdarg.h>

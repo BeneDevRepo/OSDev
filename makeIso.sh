@@ -16,20 +16,20 @@ echo "===== Creating boot Drive ====="
 
 # Create empty file:
 echo "-- creating drive file"
-dd if=/dev/zero of=floppy.img bs=512 count=2880
+dd if=/dev/zero of=build/floppy.img bs=512 count=2880
 
 # Create FAT-12 Filesystem inside File:
 echo "-- creating file system"
-mkfs.fat -F 12 -n "NBOS" floppy.img
+mkfs.fat -F 12 -n "NBOS" build/floppy.img
 
 # Write Bootsector into File:
 echo "-- writing bootsector into filesystem"
-dd if=Stage1/sector.bin of=floppy.img conv=notrunc
+dd if=build/stage1.bin of=build/floppy.img conv=notrunc
 
 
 # Write Stage2 into File:
 echo "-- copying Stage 2 into file system"
-mcopy -i floppy.img Stage2/stage2.bin "::stage2.bin"
+mcopy -i build/floppy.img build/stage2.bin "::stage2.bin"
 
 # Print image contents:
 # mdir -i floppy.img
