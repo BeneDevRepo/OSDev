@@ -3,7 +3,7 @@
 
 constexpr uint32_t SCREEN_WIDTH = 80;
 constexpr uint32_t SCREEN_HEIGHT = 25;
-constexpr uint8_t DEFAULT_COLOR = 0x7;
+// constexpr uint8_t DEFAULT_COLOR = 0x7;
 uint8_t *const screenBuffer = (uint8_t*)0xB8000;
 uint32_t cursorX=0, cursorY=0;
 
@@ -15,16 +15,21 @@ void putcolor(const uint32_t x, const uint32_t y, const uint8_t color) {
 	screenBuffer[(y * SCREEN_WIDTH + x) * 2 + 1] = color;
 }
 
-uint8_t color(const uint8_t foreground, const uint8_t background) {
-	return background << 4 | foreground;
+
+
+void fillSymbols(const char symbol) {
+	for(uint32_t i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++)
+		screenBuffer[i * 2] = symbol;
 }
 
+void fillColor(const uint8_t color) {
+	for(uint32_t i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++)
+		screenBuffer[i * 2 + 1] = color;
+}
 
-void cls() {
-	for(uint32_t i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-		screenBuffer[i * 2] = 0;
-		screenBuffer[i * 2 + 1] = DEFAULT_COLOR;
-	}
+void cls(const uint8_t color) {
+	fillSymbols();
+	fillColor(color);
 }
 
 void putc(const char c) {
@@ -60,6 +65,15 @@ void puts(const char* str) {
         putc(*str++);
 }
 
+void putc(const char c, const uint8_t color) {
+	screenBuffer[(cursorY * SCREEN_WIDTH + cursorX) * 2 + 1] = color;
+	putc(c);
+}
+
+void puts(const char* str, const uint8_t color) {
+    while(*str)
+        putc(*str++, color);
+}
 
 enum State {
 	NORMAL,
@@ -138,35 +152,25 @@ void printf(const char *fmt, ...) {
 						state = NORMAL;
 					} break;
 
-					// case 'd': {
-					// 	int32_t val = 0;
-					// 	int byte = 0;
-					// 	int32_t pos = 1000000000; // maximum number: 2,147,483,647  (10 digits)
-					// 	// int64_t pos = 1000000000000000000; // maximum number: 9,223,372,036,854,775,807  (19 digits)
-					// 	for(; byte < bytes; byte++) {
-					// 		val |= (*argp) << (byte * 8);
-					// 		argp++;
-					// 	}
-					// 	if(bytes == 1)
-					// 		argp++; // all arguments on stack are aligned to 1 word boundary
+					case 'd': {
+						int32_t pos = 1000000000; // maximum number: 2,147,483,647  (10 digits)
+						// int64_t pos = 1000000000000000000; // maximum number: 9,223,372,036,854,775,807  (19 digits)
+						int32_t val = va_arg(args, int32_t);
 
-					// 	// print sign:
-					// 	if(val < 0) {
-					// 		putc('-');
-					// 		val = -val;
-					// 	}
+						// print sign:
+						if(val < 0) {
+							putc('-');
+							val = -val;
+						}
 
-					// 	// for(; val; val /= 10)
-					// 	// 	putc('0' + (val % 10));
-					// 	for(; !(value / pos); pos /= 10);
-					// 	for(; pos; pos /= 10) {
-					// 		// if(val / pos) {
-					// 			putc('0' + (val / pos % 10));
-					// 		// }
-					// 		val -= ((val / pos) * pos); // clear digit
-					// 	}
-					// 	state = NORMAL;
-					// } break;
+						for(; pos > 1 && !(val / pos); pos /= 10); // skip zeros
+
+						for(; pos; pos /= 10) {
+							putc('0' + (val / pos));
+							val -= ((val / pos) * pos); // clear digit
+						}
+						state = NORMAL;
+					} break;
 				}
 
 				break;
